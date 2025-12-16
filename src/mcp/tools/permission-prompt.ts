@@ -4,11 +4,20 @@ import type { AgentRegistry } from '../../agents/registry';
 import { logger } from '../../utils/logger';
 
 /**
- * Result of a permission request
+ * Result of a permission request (internal format)
  */
 export interface PermissionResult {
   approved: boolean;
   reason?: string;
+}
+
+/**
+ * Claude Code permission prompt response format
+ */
+export interface ClaudePermissionResponse {
+  behavior: 'allow' | 'deny';
+  updatedInput?: Record<string, unknown>;
+  message?: string;
 }
 
 /**
@@ -52,6 +61,10 @@ export class PermissionPromptTool {
 
   /**
    * Get the tool schema for MCP registration
+   *
+   * Claude Code's --permission-prompt-tool passes:
+   * - tool_name: The name of the tool Claude wants to use (e.g., "Bash", "Edit")
+   * - input: The arguments for that tool (passthrough object)
    */
   getSchema(): Tool {
     return {
@@ -60,20 +73,17 @@ export class PermissionPromptTool {
       inputSchema: {
         type: 'object',
         properties: {
-          action: {
+          tool_name: {
             type: 'string',
-            description: 'The type of action requiring permission (e.g., bash_command, edit_file)',
+            description: 'The name of the tool Claude wants to use',
           },
-          description: {
-            type: 'string',
-            description: 'Human-readable description of what will be done',
-          },
-          details: {
+          input: {
             type: 'object',
-            description: 'Action-specific details (e.g., command, file path)',
+            description: 'The input arguments for the tool',
+            additionalProperties: true,
           },
         },
-        required: ['action', 'description'],
+        required: ['tool_name', 'input'],
       },
     };
   }
@@ -82,14 +92,73 @@ export class PermissionPromptTool {
    * Get the handler function for MCP registration
    */
   getHandler(): ToolHandler {
-    return async (args: Record<string, unknown>, agentId: string): Promise<PermissionResult> => {
-      return this.requestPermission(
+    return async (args: Record<string, unknown>, agentId: string): Promise<ClaudePermissionResponse> => {
+      // Claude Code sends: { tool_name: "Bash", input: { command: "..." } }
+      const toolName = (args.tool_name as string) || 'unknown_tool';
+      const toolInput = (args.input as Record<string, unknown>) || {};
+
+      // Generate a human-readable description from the tool input
+      const description = this.generateDescription(toolName, toolInput);
+
+      logger.debug('Permission prompt called', { agentId, toolName, toolInput });
+
+      const result = await this.requestPermission(
         agentId,
-        args.action as string,
-        args.description as string,
-        args.details
+        toolName,
+        description,
+        toolInput
       );
+
+      // Convert internal result to Claude Code expected format
+      // IMPORTANT: updatedInput must be the tool's input, not the wrapper args
+      if (result.approved) {
+        return {
+          behavior: 'allow',
+          updatedInput: toolInput,
+        };
+      } else {
+        return {
+          behavior: 'deny',
+          message: result.reason || 'User denied permission',
+        };
+      }
     };
+  }
+
+  /**
+   * Generate a human-readable description from tool name and input
+   */
+  private generateDescription(toolName: string, input: Record<string, unknown>): string {
+    // Try to create a meaningful description based on common tool patterns
+    switch (toolName.toLowerCase()) {
+      case 'bash':
+        return input.command ? `Run command: ${input.command}` : 'Run a shell command';
+      case 'edit':
+        return input.file_path ? `Edit file: ${input.file_path}` : 'Edit a file';
+      case 'write':
+        return input.file_path ? `Write file: ${input.file_path}` : 'Write a file';
+      case 'read':
+        return input.file_path ? `Read file: ${input.file_path}` : 'Read a file';
+      case 'glob':
+        return input.pattern ? `Search for files: ${input.pattern}` : 'Search for files';
+      case 'grep':
+        return input.pattern ? `Search content: ${input.pattern}` : 'Search file contents';
+      case 'webfetch':
+        return input.url ? `Fetch URL: ${input.url}` : 'Fetch a web page';
+      case 'websearch':
+        return input.query ? `Web search: ${input.query}` : 'Search the web';
+      default:
+        // For unknown tools, try to summarize the input
+        const keys = Object.keys(input);
+        if (keys.length > 0) {
+          const firstKey = keys[0];
+          const firstValue = input[firstKey];
+          if (typeof firstValue === 'string' && firstValue.length < 100) {
+            return `${toolName}: ${firstValue}`;
+          }
+        }
+        return `Use ${toolName} tool`;
+    }
   }
 
   /**
@@ -207,7 +276,7 @@ export class PermissionPromptTool {
 
     // Log the decision
     if (approved) {
-      logger.permissionGranted(agentId, pending.action, pending.details);
+      logger.permissionGranted(agentId, pending.action, pending.details as object | undefined);
     } else {
       logger.permissionDenied(agentId, pending.action, 'user denied');
     }
@@ -294,18 +363,24 @@ export class PermissionPromptTool {
     message += `Action: ${this.formatActionName(action)}\n`;
     message += `${description}\n`;
 
-    // Add relevant details based on action type
+    // Add relevant details based on tool input
     if (details && typeof details === 'object') {
-      const detailsObj = details as Record<string, unknown>;
+      const input = details as Record<string, unknown>;
 
-      if (detailsObj.command) {
-        message += `Command: ${detailsObj.command}\n`;
+      if (input.command) {
+        message += `Command: ${input.command}\n`;
       }
-      if (detailsObj.file || detailsObj.path) {
-        message += `File: ${detailsObj.file || detailsObj.path}\n`;
+      if (input.file_path || input.file || input.path) {
+        message += `File: ${input.file_path || input.file || input.path}\n`;
       }
-      if (detailsObj.url) {
-        message += `URL: ${detailsObj.url}\n`;
+      if (input.url) {
+        message += `URL: ${input.url}\n`;
+      }
+      if (input.pattern) {
+        message += `Pattern: ${input.pattern}\n`;
+      }
+      if (input.query) {
+        message += `Query: ${input.query}\n`;
       }
     }
 
@@ -318,6 +393,9 @@ export class PermissionPromptTool {
    * Format action name for display
    */
   private formatActionName(action: string): string {
+    if (!action) {
+      return 'Unknown Action';
+    }
     // Convert snake_case or kebab-case to Title Case
     return action
       .replace(/[_-]/g, ' ')

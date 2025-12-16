@@ -86,14 +86,11 @@ async function main(): Promise<void> {
       async (agentId: string, message: string) => {
         const handler = agentHandlers.get(agentId);
         if (handler) {
-          // Use the agent's XMPP connection to send the permission request
-          // The handler will forward to the user
-          const agent = registry.get(agentId);
-          if (agent) {
-            // Get the agent's XMPP client and send message to creator
-            // For now, we log since the handler handles this internally
-            logger.debug('Permission message for agent', { agentId, message });
-          }
+          // Use the agent's XMPP connection to send the permission request to user
+          handler.sendToUser(message);
+          logger.debug('Permission message sent for agent', { agentId });
+        } else {
+          logger.warn('No handler found for agent, cannot send permission message', { agentId });
         }
       },
       config.mcp.permissionTimeout
@@ -187,6 +184,7 @@ async function handleAgentCreated(event: AgentCreatedEvent): Promise<void> {
       xmppClient: agentXmppClient,
       registry,
       userJid: agent.createdBy,
+      permissionTool,
     });
 
     // Handle agent stopped event

@@ -2,6 +2,7 @@ import type { XMPPClient } from './client';
 import type { AgentProcess, OutputChunk } from '../agents/adapter';
 import type { Agent } from '../state/persistence';
 import type { AgentRegistry } from '../agents/registry';
+import type { PermissionPromptTool } from '../mcp/tools/permission-prompt';
 import { logger } from '../utils/logger';
 import { formatAgentHelp, formatStatus, formatError } from '../messages/formatter';
 import type { AgentStatusInfo } from '../messages/structured';
@@ -16,6 +17,7 @@ export interface AgentXMPPHandlerConfig {
   xmppClient: XMPPClient;
   registry: AgentRegistry;
   userJid: string;
+  permissionTool?: PermissionPromptTool;
 }
 
 export interface AgentStoppedEvent {
@@ -154,6 +156,20 @@ export class AgentXMPPHandler {
       return;
     }
 
+    // Check if this is a permission response (yes/no)
+    if (this.config.permissionTool) {
+      const handled = this.config.permissionTool.handleUserResponse(
+        this.config.agent.id,
+        trimmed
+      );
+      if (handled) {
+        logger.debug('Handled as permission response', {
+          agentId: this.config.agent.id,
+        });
+        return;
+      }
+    }
+
     // Forward message to agent process
     try {
       logger.debug('Forwarding message to agent', {
@@ -288,8 +304,9 @@ export class AgentXMPPHandler {
 
   /**
    * Send a message to the user, with rate limiting and message splitting.
+   * Public so permission prompts can use this.
    */
-  private sendToUser(content: string): void {
+  sendToUser(content: string): void {
     if (!content.trim()) {
       return;
     }
