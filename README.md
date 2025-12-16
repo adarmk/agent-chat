@@ -226,15 +226,20 @@ VirtualHost "chat.example.com"
 ### 4. Create Users
 
 ```bash
-# Create your human user account
+# Create your human user account (the one you'll log into from your XMPP client)
 prosodyctl adduser you@chat.example.com
 
-# Create the manager bot user
+# Create the manager bot user (the service logs in as this)
 prosodyctl adduser manager@chat.example.com
-
-# Create admin user (for mod_admin_rest)
-prosodyctl adduser admin@chat.example.com
 ```
+
+The `xmpp.adminUsername`/`adminPassword` in your config are for the [mod_admin_rest](https://github.com/wltsmrz/mod_admin_rest) HTTP API, which requires a Prosody admin. Add the manager user to Prosody's admin list in `prosody.cfg.lua`:
+
+```lua
+admins = { "manager@chat.example.com" }
+```
+
+Then set `adminUsername` and `adminPassword` to match `manager.username`/`manager.password` - no need for a separate admin user.
 
 ### 5. Restart Prosody
 
