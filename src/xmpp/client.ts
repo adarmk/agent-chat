@@ -48,10 +48,7 @@ export class XMPPClient {
         domain: this.config.domain,
         username: this.config.username,
         password: this.config.password,
-        // Always use TLS (allow self-signed certs for dev/Tailscale setups)
-        tls: {
-          rejectUnauthorized: false,
-        },
+        // No TLS - running over Tailscale which provides encryption
       });
 
       this.client = xmppClient;

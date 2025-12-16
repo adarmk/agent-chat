@@ -13,7 +13,7 @@ modules_enabled = {
     -- Core modules
     "roster";
     "saslauth";
-    "tls";
+    -- "tls";  -- Disabled: running over Tailscale which provides encryption
     "dialback";
     "disco";
     "posix";
