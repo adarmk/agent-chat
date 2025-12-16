@@ -27,7 +27,8 @@ export class XMPPAdmin {
     const jid = `${username}@${this.config.domain}`;
 
     try {
-      const response = await fetch(`${this.baseUrl}/admin/user/${encodeURIComponent(jid)}`, {
+      // mod_admin_rest expects just the username in the path, not the full JID
+      const response = await fetch(`${this.baseUrl}/admin_rest/user/${encodeURIComponent(username)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -59,7 +60,8 @@ export class XMPPAdmin {
     const jid = `${username}@${this.config.domain}`;
 
     try {
-      const response = await fetch(`${this.baseUrl}/admin/user/${encodeURIComponent(jid)}`, {
+      // mod_admin_rest expects just the username in the path, not the full JID
+      const response = await fetch(`${this.baseUrl}/admin_rest/user/${encodeURIComponent(username)}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Basic ${btoa(`${this.config.adminUsername}:${this.config.adminPassword}`)}`,

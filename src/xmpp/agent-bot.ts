@@ -70,6 +70,24 @@ export class AgentXMPPHandler {
 
     // Start processing agent output
     this.outputLoopPromise = this.processAgentOutput();
+
+    // Send greeting message to user so they can easily find this chat
+    this.sendGreeting();
+  }
+
+  /**
+   * Send initial greeting to user so they can find this agent in their XMPP client.
+   */
+  private async sendGreeting(): Promise<void> {
+    try {
+      const greeting = `Hi! I'm your coding agent (${this.config.agent.id}), working in ${this.config.agent.workDir}. I'm processing your request now...`;
+      await this.config.xmppClient.sendMessage(this.config.userJid, greeting);
+    } catch (error) {
+      logger.error('Failed to send agent greeting', {
+        agentId: this.config.agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

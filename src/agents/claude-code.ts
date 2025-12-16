@@ -128,9 +128,16 @@ class ClaudeCodeProcess implements AgentProcess {
   }
 
   /**
-   * Async generator that yields output chunks from Claude Code
+   * Async iterable that yields output chunks from Claude Code
    */
-  async *output(): AsyncIterable<OutputChunk> {
+  get output(): AsyncIterable<OutputChunk> {
+    return this.createOutputIterator();
+  }
+
+  /**
+   * Create async generator for output chunks
+   */
+  private async *createOutputIterator(): AsyncIterable<OutputChunk> {
     if (!this.proc.stdout) {
       throw new Error('Process stdout not available');
     }
@@ -270,6 +277,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const args = [
       'claude',
       '-p', // Headless mode
+      '--verbose', // Required when using --output-format=stream-json with --print
       '--output-format',
       'stream-json',
       '--input-format',
@@ -283,11 +291,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // Add resume session if provided
     if (config.resumeSessionId) {
       args.push('--resume', config.resumeSessionId);
-    }
-
-    // Add initial prompt if provided (only if not resuming)
-    if (config.initialPrompt && !config.resumeSessionId) {
-      args.push('--prompt', config.initialPrompt);
     }
 
     // Spawn the process
@@ -308,7 +311,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       this.logStderr(proc.stderr, config.agentId);
     }
 
-    return new ClaudeCodeProcess(proc);
+    const claudeProcess = new ClaudeCodeProcess(proc);
+
+    // Send initial prompt via stdin (stream-json format requires stdin input)
+    if (config.initialPrompt && !config.resumeSessionId) {
+      claudeProcess.send(config.initialPrompt);
+    }
+
+    return claudeProcess;
   }
 
   /**
@@ -318,7 +328,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const mcpConfig = {
       mcpServers: {
         agent_chat: {
-          type: 'sse',
+          type: 'http',
           url: config.mcpServerUrl,
           headers: {
             'X-Agent-ID': config.agentId,

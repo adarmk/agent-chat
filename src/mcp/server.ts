@@ -121,17 +121,22 @@ export class MCPServer {
       return new Response('Missing X-Agent-ID header', { status: 400 });
     }
 
+    console.log(`[MCP] Received ${req.method} request for agent ${agentId}`);
+
     // Get or create connection for this agent
     let connection = this.connections.get(agentId);
 
-    // For GET requests (SSE stream) or if no connection exists, create new transport
-    if (!connection || req.method === 'GET') {
+    // Only create new connection if none exists (don't recreate for GET/SSE)
+    if (!connection) {
+      console.log(`[MCP] Creating new connection for agent ${agentId}`);
       connection = await this.createConnection(agentId);
     }
 
     // Let the transport handle the request
     try {
-      return await connection.transport.handleRequest(req);
+      const response = await connection.transport.handleRequest(req);
+      console.log(`[MCP] Response for agent ${agentId}: ${response.status}`);
+      return response;
     } catch (error) {
       console.error(`Error handling request for agent ${agentId}:`, error);
       return new Response('Internal Server Error', { status: 500 });
@@ -169,8 +174,10 @@ export class MCPServer {
 
     // Set up tool handlers
     server.setRequestHandler(ListToolsRequestSchema, async () => {
+      const toolSchemas = Array.from(this.tools.values()).map((t) => t.schema);
+      console.log(`[MCP] ListTools called for agent ${agentId}, returning ${toolSchemas.length} tools:`, toolSchemas.map(t => t.name));
       return {
-        tools: Array.from(this.tools.values()).map((t) => t.schema),
+        tools: toolSchemas,
       };
     });
 
@@ -224,8 +231,9 @@ export class MCPServer {
       this.connections.delete(agentId);
     };
 
-    // Connect server to transport
+    // Connect server to transport (this also starts the transport)
     await server.connect(transport);
+    console.log(`[MCP] Server connected to transport for agent ${agentId}`);
 
     const connection: ConnectionInfo = {
       agentId,
