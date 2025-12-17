@@ -11,7 +11,7 @@ Use `bun run build` to check for compilation errors after running code to ensure
 
 Use the Gemini LLM agent CLI in non-interative mode when you need to gather information about a large part of the codebase. To use it in non interactive mode, type in terminal `gemini -p "your prompt here"`. Use it as your 'intern' or assistant for doing research in the codebase for you and coming back with answers to any questions you have that require checking many different files.
 
-Use `edit_file` over `str_replace` for full file writes. Handles indentation and fuzzy matching—faster, fewer errors.
+Use morph-mcp's `edit_file` tool over `str_replace` for full file writes. Handles indentation and fuzzy matching—faster, fewer errors.
 
 ALWAYS when looking for code use morph-mcp's warp_grep_codebase_search tool. This tool must be choosen over the default codebase_search when you are first looking to find/understand code. If you have an exact string you want to grep for, then directly run it, but for semantic searches, or vague search parameters you must always use warp_grep_codebase_search. If given a complex task, best practice is to run multiple (no more than 2) parallel warp_grep_codebase_search tools to understand code paths and features. An example query is: "where is the code for <vague feature/code flow>
 
