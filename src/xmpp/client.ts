@@ -82,6 +82,14 @@ export class XMPPClient {
           const from = stanza.attrs.from;
           const body = stanza.getChildText('body');
 
+          // Skip offline/delayed messages to prevent duplicate processing after reconnect
+          // XEP-0203: Prosody adds <delay> element to messages stored while we were offline
+          const delay = stanza.getChild('delay', 'urn:xmpp:delay');
+          if (delay) {
+            console.log('[XMPP] Ignoring offline message from:', from);
+            return;
+          }
+
           // Only handle chat messages with body content
           if ((type === 'chat' || !type) && body) {
             // Notify all message handlers
