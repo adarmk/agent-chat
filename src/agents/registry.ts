@@ -68,6 +68,19 @@ export class AgentRegistry {
    */
   async register(agent: Omit<Agent, 'id' | 'createdAt'>): Promise<Agent> {
     const id = this.generateId();
+    return this.registerWithId(id, agent);
+  }
+
+  /**
+   * Register a new agent with a specific ID.
+   * Use this when the ID must match an externally created resource (e.g., XMPP user).
+   * Persists the agent to disk.
+   */
+  async registerWithId(id: string, agent: Omit<Agent, 'id' | 'createdAt'>): Promise<Agent> {
+    if (this.agents.has(id)) {
+      throw new Error(`Agent with ID already exists: ${id}`);
+    }
+
     const createdAt = new Date().toISOString();
 
     const newAgent: Agent = {

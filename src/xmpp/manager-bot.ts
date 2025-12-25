@@ -328,7 +328,7 @@ export class ManagerBot {
       const initialPrompt = input;
       const workDir = join(this.config.work.basePath, state.repo!);
 
-      // Generate agent ID
+      // Generate agent ID first, then use it for both JID and registration
       const agentId = this.registry.generateId();
       const agentJid = `${agentId}@${this.config.xmpp.domain}`;
 
@@ -336,8 +336,8 @@ export class ManagerBot {
       const password = XMPPAdmin.generatePassword();
       await this.xmppAdmin.createUser(agentId, password);
 
-      // Register agent in registry
-      const agent = await this.registry.register({
+      // Register agent in registry with the same ID used for the JID
+      const agent = await this.registry.registerWithId(agentId, {
         type: 'claude-code',
         jid: agentJid,
         workDir,
