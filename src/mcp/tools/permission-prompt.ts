@@ -235,18 +235,18 @@ export class PermissionPromptTool {
     const trimmed = message.trim().toLowerCase();
 
     // Try to parse response with optional request ID
-    // Formats: "yes", "no", "a1b2 yes", "a1b2 no"
-    const match = trimmed.match(/^(?:([a-f0-9]{4})\s+)?(yes|y|ok|approve|allow|no|n|deny|reject)$/);
+    // Formats: "yes", "y", "no", "n", "a1b2 yes", "a1b2 y", "a1b2 no", "a1b2 n"
+    const match = trimmed.match(/^(?:([a-f0-9]{4})\s+)?(yes|y|no|n)$/);
 
     if (!match) {
-      return false; // Not a permission response
+      return false; // Not a permission response, forward to agent
     }
 
     const requestId = match[1];
     const response = match[2];
 
-    // Determine approval
-    const approved = ['yes', 'y', 'ok', 'approve', 'allow'].includes(response);
+    // Only "y" or "yes" (case-insensitive) counts as approval
+    const approved = ['yes', 'y'].includes(response);
 
     // Find the pending request
     let pending: PendingPermission | undefined;
@@ -384,7 +384,7 @@ export class PermissionPromptTool {
       }
     }
 
-    message += `\nReply: yes / no`;
+    message += `\nReply: y / n`;
 
     return message;
   }
