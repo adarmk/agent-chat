@@ -3,7 +3,7 @@
 # This image runs the Agent Chat Service and includes Prosody XMPP server.
 # Claude Code CLI must be available in the container (mounted or installed).
 
-FROM oven/bun:1-debian AS base
+FROM node:22-slim AS base
 
 # Install Prosody and dependencies
 RUN apt-get update && apt-get install -y \
@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     lua-event \
     curl \
     ca-certificates \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install mod_admin_rest for Prosody
@@ -25,21 +26,22 @@ RUN mkdir -p /usr/lib/prosody/modules \
 WORKDIR /app
 
 # Copy package files
-COPY package.json bun.lock* ./
+COPY package.json package-lock.json* ./
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN npm ci
 
 # Copy source code
 COPY . .
 
 # Build the application
-RUN bun run build
+RUN npm run build
 
 # Create directories for Prosody and agent-chat state
 RUN mkdir -p /var/lib/prosody \
     && mkdir -p /var/run/prosody \
     && mkdir -p /root/.agent-chat \
+    && mkdir -p /etc/prosody/certs \
     && chown -R prosody:prosody /var/lib/prosody /var/run/prosody
 
 # Copy Prosody configuration
@@ -59,6 +61,7 @@ EXPOSE 5222 5280 3001
 ENV XMPP_HOST=localhost \
     XMPP_PORT=5222 \
     XMPP_DOMAIN=localhost \
+    XMPP_TLS=true \
     XMPP_ADMIN_USERNAME=admin \
     XMPP_ADMIN_PASSWORD=admin \
     MANAGER_USERNAME=manager \
@@ -68,8 +71,8 @@ ENV XMPP_HOST=localhost \
     WORK_BASE_PATH=/work \
     AGENTS_MAX_CONCURRENT=5
 
-# Volume for work directories (repositories)
-VOLUME ["/work", "/root/.agent-chat"]
+# Volume for work directories (repositories) and TLS certs
+VOLUME ["/work", "/root/.agent-chat", "/etc/prosody/certs"]
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["bun", "run", "src/index.ts"]
+CMD ["node", "dist/index.js"]

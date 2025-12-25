@@ -1,15 +1,17 @@
 {
   "name": "agent-chat",
-  "module": "src/index.ts",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "bun run src/index.ts",
-    "build": "bun build src/index.ts --outdir ./dist --target bun"
+    "start": "NODE_TLS_REJECT_UNAUTHORIZED=0 node dist/index.js",
+    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 tsx src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --packages=external",
+    "build:check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.27.2",
+    "tsx": "^4.0.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {

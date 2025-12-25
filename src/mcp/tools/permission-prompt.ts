@@ -31,7 +31,7 @@ export interface PendingPermission {
   details?: unknown;
   createdAt: Date;
   resolve: (result: PermissionResult) => void;
-  timeoutHandle: Timer;
+  timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
 /**

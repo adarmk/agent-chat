@@ -1,3 +1,4 @@
+import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import {
@@ -32,7 +33,7 @@ interface ConnectionInfo {
  * Runs a single HTTP server that all agents connect to.
  */
 export class MCPServer {
-  private httpServer: ReturnType<typeof Bun.serve> | null = null;
+  private httpServer: HttpServer | null = null;
   private tools: Map<string, RegisteredTool> = new Map();
   private connections: Map<string, ConnectionInfo> = new Map();
   private port: number = 3001;
@@ -45,12 +46,86 @@ export class MCPServer {
   async start(port: number = 3001): Promise<void> {
     this.port = port;
 
-    this.httpServer = Bun.serve({
-      port: this.port,
-      fetch: (req) => this.handleRequest(req),
+    this.httpServer = createServer(async (req, res) => {
+      try {
+        // Convert Node.js request to Web Request
+        const webRequest = await this.convertToWebRequest(req);
+        
+        // Handle the request
+        const webResponse = await this.handleRequest(webRequest);
+        
+        // Send the response
+        await this.sendWebResponse(res, webResponse);
+      } catch (error) {
+        console.error('Error handling request:', error);
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+      }
     });
 
-    console.log(`MCP Server started on http://localhost:${this.port}`);
+    await new Promise<void>((resolve) => {
+      this.httpServer!.listen(this.port, () => {
+        console.log(`MCP Server started on http://localhost:${this.port}`);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Convert Node.js IncomingMessage to Web API Request
+   */
+  private async convertToWebRequest(req: IncomingMessage): Promise<Request> {
+    const url = `http://localhost:${this.port}${req.url}`;
+    const headers = new Headers();
+    
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value) {
+        headers.set(key, Array.isArray(value) ? value[0] : value);
+      }
+    }
+
+    // Read body for POST/PUT requests
+    let body: string | undefined;
+    if (req.method === 'POST' || req.method === 'PUT') {
+      body = await new Promise<string>((resolve) => {
+        let data = '';
+        req.on('data', (chunk) => (data += chunk));
+        req.on('end', () => resolve(data));
+      });
+    }
+
+    return new Request(url, {
+      method: req.method,
+      headers,
+      body: body,
+    });
+  }
+
+  /**
+   * Send Web API Response via Node.js ServerResponse
+   */
+  private async sendWebResponse(res: ServerResponse, webResponse: Response): Promise<void> {
+    res.statusCode = webResponse.status;
+    
+    webResponse.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+
+    // Handle streaming responses (SSE)
+    if (webResponse.body) {
+      const reader = webResponse.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    
+    res.end();
   }
 
   /**
@@ -73,7 +148,9 @@ export class MCPServer {
     this.connections.clear();
 
     // Stop the HTTP server
-    this.httpServer.stop();
+    await new Promise<void>((resolve) => {
+      this.httpServer!.close(() => resolve());
+    });
     this.httpServer = null;
 
     console.log('MCP Server stopped');

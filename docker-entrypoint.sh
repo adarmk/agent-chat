@@ -7,9 +7,32 @@ echo "=== Agent Chat Service Container ==="
 DOMAIN="${XMPP_DOMAIN:-localhost}"
 echo "Configuring Prosody for domain: $DOMAIN"
 
-# Update Prosody config with actual domain
+# Generate TLS certificates if they don't exist
+CERT_DIR="/etc/prosody/certs"
+CERT_KEY="$CERT_DIR/$DOMAIN.key"
+CERT_CRT="$CERT_DIR/$DOMAIN.crt"
+
+if [ ! -f "$CERT_KEY" ] || [ ! -f "$CERT_CRT" ]; then
+    echo "Generating self-signed TLS certificates for $DOMAIN..."
+    mkdir -p "$CERT_DIR"
+    openssl req -new -x509 -days 365 -nodes \
+        -out "$CERT_CRT" \
+        -keyout "$CERT_KEY" \
+        -subj "/CN=$DOMAIN"
+    chown prosody:prosody "$CERT_KEY" "$CERT_CRT"
+    chmod 600 "$CERT_KEY"
+    chmod 644 "$CERT_CRT"
+    echo "TLS certificates generated"
+else
+    echo "Using existing TLS certificates"
+fi
+
+# Update Prosody config with actual domain and certificate paths
 sed -i "s/VirtualHost \"localhost\"/VirtualHost \"$DOMAIN\"/" /etc/prosody/prosody.cfg.lua
 sed -i "s/Component \"admin.localhost\"/Component \"admin.$DOMAIN\"/" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/localhost.key|$CERT_KEY|g" /etc/prosody/prosody.cfg.lua
+sed -i "s|/etc/prosody/certs/localhost.crt|$CERT_CRT|g" /etc/prosody/prosody.cfg.lua
+sed -i "s/http_default_host = \"localhost\"/http_default_host = \"$DOMAIN\"/" /etc/prosody/prosody.cfg.lua
 
 # Ensure Prosody directories have correct permissions
 chown -R prosody:prosody /var/lib/prosody /var/run/prosody
@@ -51,7 +74,8 @@ if [ ! -f "$CONFIG_FILE" ]; then
     "port": ${XMPP_PORT:-5222},
     "domain": "$DOMAIN",
     "adminUsername": "$ADMIN_USER",
-    "adminPassword": "$ADMIN_PASS"
+    "adminPassword": "$ADMIN_PASS",
+    "tls": ${XMPP_TLS:-true}
   },
   "manager": {
     "username": "$MANAGER_USER",
@@ -73,6 +97,7 @@ fi
 
 echo "=== Configuration ==="
 echo "XMPP Domain: $DOMAIN"
+echo "XMPP TLS: ${XMPP_TLS:-true}"
 echo "Manager JID: $MANAGER_USER@$DOMAIN"
 echo "MCP Port: ${MCP_PORT:-3001}"
 echo "Work Path: ${WORK_BASE_PATH:-/work}"
@@ -90,5 +115,5 @@ echo ""
 echo "Starting Agent Chat Service..."
 echo ""
 
-# Execute the main command (default: bun run src/index.ts)
+# Execute the main command (default: node dist/index.js)
 exec "$@"

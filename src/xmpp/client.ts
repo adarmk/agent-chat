@@ -9,6 +9,7 @@ export interface XMPPClientConfig {
   domain: string;
   username: string;
   password: string;
+  tls?: boolean;  // Enable TLS/SSL connection
 }
 
 interface QueuedMessage {
@@ -24,7 +25,7 @@ export class XMPPClient {
   private messageQueue: QueuedMessage[] = [];
   private reconnectAttempts = 0;
   private maxReconnectDelay = 60000; // 60 seconds
-  private reconnectTimer: Timer | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = true;
 
   constructor(config: XMPPClientConfig) {
@@ -43,12 +44,17 @@ export class XMPPClient {
     this.shouldReconnect = true;
 
     return new Promise((resolve, reject) => {
+      // Use xmpps:// for TLS, xmpp:// for plain connections
+      const protocol = this.config.tls ? 'xmpps' : 'xmpp';
+      
       const xmppClient = client({
-        service: `xmpp://${this.config.host}:${this.config.port}`,
+        service: `${protocol}://${this.config.host}:${this.config.port}`,
         domain: this.config.domain,
         username: this.config.username,
         password: this.config.password,
-        // No TLS - running over Tailscale which provides encryption
+        tls: {
+          rejectUnauthorized: false,  // Accept self-signed certificates
+        },
       });
 
       this.client = xmppClient;

@@ -13,7 +13,7 @@ modules_enabled = {
     -- Core modules
     "roster";
     "saslauth";
-    -- "tls";  -- Disabled: running over Tailscale which provides encryption
+    "tls";  -- TLS for secure connections
     "dialback";
     "disco";
     "posix";
@@ -30,19 +30,24 @@ modules_enabled = {
 
     -- Message handling
     "offline";
-    "stream_management";
+    -- "stream_management"; -- removed, not installed in base Prosody
 }
 
 modules_disabled = {
     "s2s";  -- Disable server-to-server (not needed for local use)
 }
 
+-- TLS/SSL Configuration
+ssl = {
+    key = "/etc/prosody/certs/localhost.key";
+    certificate = "/etc/prosody/certs/localhost.crt";
+}
+
 -- Disable server-to-server connections
 s2s_require_encryption = false
 
--- Allow unencrypted client connections (for local container use)
--- In production, you should enable TLS
-c2s_require_encryption = false
+-- Require TLS for client connections
+c2s_require_encryption = true
 
 -- Authentication
 authentication = "internal_hashed"
@@ -74,6 +79,12 @@ VirtualHost "localhost"
 
     -- Allow registration (for creating agent users)
     allow_registration = false
+
+    -- SSL certificates for this host
+    ssl = {
+        key = "/etc/prosody/certs/localhost.key";
+        certificate = "/etc/prosody/certs/localhost.crt";
+    }
 
     -- Modules specific to this host
     modules_enabled = {

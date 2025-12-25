@@ -1,9 +1,12 @@
+import { readFile, access } from 'node:fs/promises';
+
 export interface XmppConfig {
   host: string;
   port: number;
   domain: string;
   adminUsername: string;
   adminPassword: string;
+  tls: boolean;
 }
 
 export interface ManagerConfig {
@@ -38,11 +41,10 @@ export async function loadConfig(): Promise<Config> {
   const configPath = `${process.env.HOME}/.agent-chat/config.json`;
 
   try {
-    const file = Bun.file(configPath);
-    if (await file.exists()) {
-      const fileConfig = await file.json();
-      return mergeWithEnv(fileConfig);
-    }
+    await access(configPath);
+    const content = await readFile(configPath, 'utf-8');
+    const fileConfig = JSON.parse(content);
+    return mergeWithEnv(fileConfig);
   } catch (e) {
     // Config file doesn't exist or is invalid
   }
@@ -58,6 +60,7 @@ function mergeWithEnv(fileConfig: Partial<Config>): Config {
       domain: process.env.XMPP_DOMAIN || fileConfig.xmpp?.domain || 'localhost',
       adminUsername: process.env.XMPP_ADMIN_USERNAME || fileConfig.xmpp?.adminUsername || 'admin',
       adminPassword: process.env.XMPP_ADMIN_PASSWORD || fileConfig.xmpp?.adminPassword || '',
+      tls: (process.env.XMPP_TLS ?? fileConfig.xmpp?.tls?.toString() ?? 'true') === 'true',
     },
     manager: {
       username: process.env.MANAGER_USERNAME || fileConfig.manager?.username || 'manager',

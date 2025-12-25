@@ -5,8 +5,10 @@
  * Handles JSONL-based I/O streaming and structured message handling.
  */
 
-import type { Subprocess } from 'bun';
-import { AgentAdapter, AgentConfig, AgentProcess, OutputChunk } from './adapter';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
+import { AgentAdapter, AgentConfig, AgentProcess, OutputChunk } from './adapter.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -50,36 +52,27 @@ type ClaudeCodeEvent =
  * Implementation of AgentProcess for Claude Code
  */
 class ClaudeCodeProcess implements AgentProcess {
-  private proc: Subprocess;
+  private proc: ChildProcess;
   private _sessionId?: string;
   private messageQueue: string[] = [];
   private isReady: boolean = true;
   private exitCallback?: (exitCode: number | null) => void;
+  private exitPromise: Promise<number | null>;
+  private _exitCode: number | null = null;
 
-  constructor(proc: Subprocess) {
+  constructor(proc: ChildProcess) {
     this.proc = proc;
 
-    // Monitor process exit
-    this.monitorExit();
-  }
-
-  /**
-   * Monitor process exit and call callback when it exits
-   */
-  private async monitorExit(): Promise<void> {
-    try {
-      await this.proc.exited;
-      const exitCode = this.proc.exitCode;
-
-      if (this.exitCallback) {
-        this.exitCallback(exitCode);
-      }
-    } catch (err) {
-      console.error('[ClaudeCodeProcess] Error monitoring exit:', err);
-      if (this.exitCallback) {
-        this.exitCallback(null);
-      }
-    }
+    // Create exit promise for async monitoring
+    this.exitPromise = new Promise((resolve) => {
+      this.proc.on('exit', (code) => {
+        this._exitCode = code;
+        if (this.exitCallback) {
+          this.exitCallback(code);
+        }
+        resolve(code);
+      });
+    });
   }
 
   /**
@@ -110,6 +103,10 @@ class ClaudeCodeProcess implements AgentProcess {
         content: [{ type: 'text', text }],
       },
     };
+
+    if (!this.proc.stdin) {
+      throw new Error('Process stdin not available');
+    }
 
     this.proc.stdin.write(JSON.stringify(input) + '\n');
     this.isReady = false;
@@ -142,88 +139,73 @@ class ClaudeCodeProcess implements AgentProcess {
       throw new Error('Process stdout not available');
     }
 
-    // Read stdout line by line (JSONL format)
-    const reader = this.proc.stdout.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    // Use readline for line-by-line reading (JSONL format)
+    const rl = createInterface({
+      input: this.proc.stdout,
+      crlfDelay: Infinity,
+    });
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
+    for await (const line of rl) {
+      if (!line.trim()) continue;
 
-        if (done) break;
+      try {
+        const event = JSON.parse(line) as ClaudeCodeEvent;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
+        // Handle different event types
+        switch (event.type) {
+          case 'init':
+            this._sessionId = event.session_id;
+            yield {
+              type: 'structured',
+              data: {
+                type: 'session_started',
+                sessionId: event.session_id,
+                assistantMode: event.assistant_mode,
+              },
+            };
+            break;
 
-        // Process all complete lines, keep the last incomplete one in buffer
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-
-          try {
-            const event = JSON.parse(line) as ClaudeCodeEvent;
-
-            // Handle different event types
-            switch (event.type) {
-              case 'init':
-                this._sessionId = event.session_id;
+          case 'assistant':
+            // Extract text content from assistant message
+            for (const content of event.message.content) {
+              if (content.type === 'text') {
+                yield {
+                  type: 'text',
+                  content: content.text,
+                };
+              } else if (content.type === 'tool_use') {
                 yield {
                   type: 'structured',
                   data: {
-                    type: 'session_started',
-                    sessionId: event.session_id,
-                    assistantMode: event.assistant_mode,
+                    type: 'tool_use',
+                    id: content.id,
+                    name: content.name,
+                    input: content.input,
                   },
                 };
-                break;
-
-              case 'assistant':
-                // Extract text content from assistant message
-                for (const content of event.message.content) {
-                  if (content.type === 'text') {
-                    yield {
-                      type: 'text',
-                      content: content.text,
-                    };
-                  } else if (content.type === 'tool_use') {
-                    yield {
-                      type: 'structured',
-                      data: {
-                        type: 'tool_use',
-                        id: content.id,
-                        name: content.name,
-                        input: content.input,
-                      },
-                    };
-                  }
-                }
-                break;
-
-              case 'result':
-                this._sessionId = event.session_id;
-                yield {
-                  type: 'structured',
-                  data: {
-                    type: 'turn_complete',
-                    sessionId: event.session_id,
-                    stopReason: event.stop_reason,
-                  },
-                };
-
-                // Process next queued message after turn completes
-                this.processQueue();
-                break;
+              }
             }
-          } catch (err) {
-            // Log parse errors but continue processing
-            console.error('Failed to parse Claude Code output:', err, 'Line:', line);
-          }
+            break;
+
+          case 'result':
+            this._sessionId = event.session_id;
+            yield {
+              type: 'structured',
+              data: {
+                type: 'turn_complete',
+                sessionId: event.session_id,
+                stopReason: event.stop_reason,
+              },
+            };
+
+            // Process next queued message after turn completes
+            this.processQueue();
+            break;
         }
+      } catch (err) {
+        // Log parse errors but continue processing
+        console.error('Failed to parse Claude Code output:', err, 'Line:', line);
       }
-    } finally {
-      reader.releaseLock();
     }
   }
 
@@ -233,7 +215,7 @@ class ClaudeCodeProcess implements AgentProcess {
   async kill(): Promise<void> {
     if (this.isAlive) {
       this.proc.kill();
-      await this.proc.exited;
+      await this.exitPromise;
     }
   }
 
@@ -241,7 +223,7 @@ class ClaudeCodeProcess implements AgentProcess {
    * Check if the process is still running
    */
   get isAlive(): boolean {
-    return !this.proc.killed && this.proc.exitCode === null;
+    return !this.proc.killed && this._exitCode === null;
   }
 
   /**
@@ -275,7 +257,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
 
     // Build Claude Code command arguments
     const args = [
-      'claude',
       '-p', // Headless mode
       '--verbose', // Required when using --output-format=stream-json with --print
       '--output-format',
@@ -294,11 +275,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     }
 
     // Spawn the process
-    const proc = Bun.spawn(args, {
+    const proc = spawn('claude', args, {
       cwd: config.workDir,
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
         // Ensure Claude Code runs in headless mode
@@ -351,24 +330,20 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   /**
    * Log stderr output for debugging
    */
-  private async logStderr(stderr: ReadableStream, agentId: string): Promise<void> {
-    const reader = stderr.getReader();
-    const decoder = new TextDecoder();
+  private async logStderr(stderr: Readable, agentId: string): Promise<void> {
+    const rl = createInterface({
+      input: stderr,
+      crlfDelay: Infinity,
+    });
 
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const text = decoder.decode(value, { stream: true });
-        if (text.trim()) {
-          console.error(`[Claude Code ${agentId}] stderr:`, text);
+      for await (const line of rl) {
+        if (line.trim()) {
+          console.error(`[Claude Code ${agentId}] stderr:`, line);
         }
       }
     } catch (err) {
       console.error(`[Claude Code ${agentId}] stderr error:`, err);
-    } finally {
-      reader.releaseLock();
     }
   }
 }

@@ -28,11 +28,13 @@ export class XMPPAdmin {
 
     try {
       // mod_admin_rest expects just the username in the path, not the full JID
+      // Host header must match the Prosody VirtualHost for mod_admin_rest to work
       const response = await fetch(`${this.baseUrl}/admin_rest/user/${encodeURIComponent(username)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Basic ${btoa(`${this.config.adminUsername}:${this.config.adminPassword}`)}`,
+          'Host': this.config.domain,
         },
         body: JSON.stringify({ password }),
       });
@@ -61,10 +63,12 @@ export class XMPPAdmin {
 
     try {
       // mod_admin_rest expects just the username in the path, not the full JID
+      // Host header must match the Prosody VirtualHost for mod_admin_rest to work
       const response = await fetch(`${this.baseUrl}/admin_rest/user/${encodeURIComponent(username)}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Basic ${btoa(`${this.config.adminUsername}:${this.config.adminPassword}`)}`,
+          'Host': this.config.domain,
         },
       });
 

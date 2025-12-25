@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 // Type definitions
@@ -59,20 +59,18 @@ export class StatePersistence {
    */
   async load(): Promise<ServiceState> {
     try {
-      const file = Bun.file(this.statePath);
+      await access(this.statePath);
+      const content = await readFile(this.statePath, 'utf-8');
+      const loadedState = JSON.parse(content);
 
-      if (await file.exists()) {
-        const loadedState = await file.json();
+      // Validate that the loaded state has the expected structure
+      if (loadedState && typeof loadedState === 'object' && Array.isArray(loadedState.agents)) {
+        this.state = loadedState;
 
-        // Validate that the loaded state has the expected structure
-        if (loadedState && typeof loadedState === 'object' && Array.isArray(loadedState.agents)) {
-          this.state = loadedState;
+        // Mark all agents as stopped on service restart
+        await this.markAllStopped();
 
-          // Mark all agents as stopped on service restart
-          await this.markAllStopped();
-
-          return this.state;
-        }
+        return this.state;
       }
     } catch (e) {
       // File doesn't exist, is corrupted, or can't be parsed
@@ -95,9 +93,10 @@ export class StatePersistence {
       await mkdir(dir, { recursive: true });
 
       // Write the state file with pretty formatting
-      await Bun.write(
+      await writeFile(
         this.statePath,
-        JSON.stringify(this.state, null, 2)
+        JSON.stringify(this.state, null, 2),
+        'utf-8'
       );
     } catch (e) {
       console.error(`Failed to save state to ${this.statePath}:`, e);
