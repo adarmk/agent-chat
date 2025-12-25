@@ -140,26 +140,18 @@ async function main(): Promise<void> {
  * Handle agent creation event from manager bot
  */
 async function handleAgentCreated(event: AgentCreatedEvent): Promise<void> {
-  const { agent, initialPrompt } = event;
+  const { agent, initialPrompt, password } = event;
   logger.info('Handling agent creation', { agentId: agent.id });
 
   try {
-    // Generate password for agent XMPP user (created by manager bot already)
-    const agentPassword = XMPPAdmin.generatePassword();
-
-    // Create XMPP client for the agent
+    // Create XMPP client for the agent using password from manager bot
     const agentXmppClient = new XMPPClient({
       host: config.xmpp.host,
       port: config.xmpp.port,
       domain: config.xmpp.domain,
       username: agent.id,
-      password: agentPassword,
+      password,
     });
-
-    // Note: The manager bot already created the XMPP user, but we need to
-    // recreate it with the password we know. In a real implementation,
-    // you'd store the password or use a shared secret.
-    await xmppAdmin.createUser(agent.id, agentPassword);
 
     // Connect agent's XMPP client
     await agentXmppClient.connect();

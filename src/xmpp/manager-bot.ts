@@ -15,6 +15,7 @@ import { join } from 'node:path';
 export interface AgentCreatedEvent {
   agent: Agent;
   initialPrompt: string;
+  password: string;
 }
 
 /**
@@ -361,8 +362,8 @@ export class ManagerBot {
         `Agent ${agent.id} created. Chat at ${agent.jid}`
       );
 
-      // Emit agent created event
-      this.emitAgentCreated({ agent, initialPrompt });
+      // Emit agent created event with password so handler can connect
+      this.emitAgentCreated({ agent, initialPrompt, password });
 
     } catch (error) {
       logger.error('Failed to create agent', {
