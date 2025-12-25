@@ -166,6 +166,12 @@ export class ManagerBot {
       return;
     }
 
+    // Kill all agents
+    if (command === 'kill-all' || command === 'killall') {
+      await this.killAllAgents(userJid);
+      return;
+    }
+
     // Status
     if (command.startsWith('status ')) {
       const agentId = command.substring(7).trim();
@@ -450,6 +456,34 @@ export class ManagerBot {
   }
 
   /**
+   * Kill all agents
+   */
+  private async killAllAgents(userJid: string): Promise<void> {
+    const agents = this.registry.getAll();
+
+    if (agents.length === 0) {
+      await this.sendMessage(userJid, 'No agents to kill.');
+      return;
+    }
+
+    const killPromises = agents.map(agent => {
+      return this.killAgent(userJid, agent.id);
+    });
+
+    try {
+      await Promise.all(killPromises);
+      await this.sendMessage(userJid, 'All agents killed.');
+    } catch (error) {
+      logger.error('Failed to kill agents', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.sendMessage(userJid,
+        `Failed to kill agents: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
    * Get status of a specific agent
    */
   private async getAgentStatus(userJid: string, agentId: string): Promise<void> {
@@ -516,6 +550,7 @@ export class ManagerBot {
       'new / create - Start agent creation flow',
       'list / agents - List all active agents',
       'kill <agent-id> - Force-kill an agent',
+      'kill-all - Force-kill all active agents',
       'status <agent-id> - Get agent status',
       'repos - List available repositories',
       'help - Show this help message',
